@@ -5,5 +5,5 @@ full_gcv2hocr converts from fullTextAnnotation of Google Cloud Vision API to hOC
 ## Usage
 ```
 pip install bottle
-python3 fulltext.py HOCRS_DIR
+python3 fulltext.py PATH1 PATH2...
 ```

@@ -13,15 +13,14 @@ class D(dict):
 
 
 class Line:
-
     def __init__(self, w):
         self.x0 = self.y0 = self.x1 = self.y1 = 0
         self.words = [w]
 
 
 class HocrPage:
-
-    def __init__(self, page, line_tolerance=5):
+    def __init__(self, stem_name, page, line_tolerance=5):
+        self.stem_name = stem_name
         self.last_baseline = -100
         self.line_tolerance = line_tolerance  # これ以下なら同じ行
         if 'property' in page:
@@ -82,21 +81,29 @@ class HocrPage:
 
 
 class FullText:
+    def __init__(self, dp, line_tolerance=5):
+        self.dp = dp
+        self.hp = dp / (dp.name + '.hocr')  # merged hocr
+        self.hocr_pages = []
+        jps = sorted(dp.glob('*.json'), key=lambda x: x.name)
 
-    def __init__(self, jp, line_tolerance=5):
-        self.jp = jp
-        self.j = json.loads(jp.read_text(), object_hook=D)
-        if 'responses' not in self.j:
-            self.pages = self.j.fullTextAnnotation.pages
-        elif not self.j.responses[0]:
-            self.pages = []
-        else:
-            self.pages = self.j.responses[0].fullTextAnnotation.pages
-        self.hocrpages = [
-            HocrPage(page, line_tolerance) for page in self.pages
-        ]
+        for jp in jps:
+            j = json.loads(jp.read_text(), object_hook=D)
+            if 'responses' not in j:
+                j_pages = j.fullTextAnnotation.pages
+            elif not j.responses[0]:
+                continue
+            else:
+                j_pages = j.responses[0].fullTextAnnotation.pages
+            assert len(j_pages) < 2  # json has 2 or more pages
+            j_page = j_pages[0]
+            # for div.ocr_page
+            hocr_page = HocrPage(
+                jp.with_suffix('').name, j_page, line_tolerance
+            )
+            self.hocr_pages.append(hocr_page)
 
-    def print_symbols(self):
+    def print_symbols(self):  # legacy
         for page in self.pages:
             for block in page.blocks:  # ocr_carea
                 for par in block.paragraphs:  # ocr_par
@@ -106,22 +113,14 @@ class FullText:
                             print(sym.text)
 
     def to_hocr(self):
-        multiple = len(self.hocrpages) > 1
-
-        for i, hocrpage in enumerate(self.hocrpages):
-            if multiple:
-                hp = self.jp.with_suffix('.%s.hocr' % i)
-            else:
-                hp = self.jp.with_suffix('.hocr')
-            s = template(
-                'page.html',
-                blocks=hocrpage.blocks,
-                title=hp.name,
-                lang=hocrpage.lang,
-                page_width=hocrpage.width,
-                page_height=hocrpage.height
-            )
-            hp.write_text(s)
+        s = template(
+            'multi_page.html',
+            hocr_pages=self.hocr_pages,
+            pages_len=len(self.hocr_pages),
+            lang=self.hocr_pages[0].lang,
+            title=self.dp.name
+        )
+        self.hp.write_text(s)
 
 
 def main():
@@ -131,8 +130,8 @@ def main():
         description='full_gcv2hocr converts from fullTextAnnotation of Google Cloud Vision API to hOCR.'
     )
     parser.add_argument(
-        'jp_strs', type=str, nargs='+',
-        help='json file path strings'
+        'dir',
+        help='jsons container directory'
     )
     parser.add_argument(
         '--line_tolerance', type=int, nargs='?',
@@ -140,11 +139,11 @@ def main():
         help='base line tolerance'
     )
     args = parser.parse_args()
+    # print(args)
 
-    for jp_str in args.jp_strs:
-        fp = Path(jp_str)
-        fulltext = FullText(fp, args.line_tolerance)
-        fulltext.to_hocr()
+    dp = Path(args.dir)
+    fulltext = FullText(dp, args.line_tolerance)
+    fulltext.to_hocr()
 
 
 if __name__ == '__main__':
